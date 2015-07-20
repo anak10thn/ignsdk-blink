@@ -1,0 +1,129 @@
+#!/bin/bash
+
+if [ $(whoami) == "root" ]
+then
+	echo "Error: Don't run this script as root."
+	exit 1
+fi
+
+echo -e "\n\nIGNSDK Package Creator (Debian GNU/Linux)"
+
+package_name=$1
+deb_package_name=$(echo $package_name | sed 's/\.ign//')
+project_dir=$2
+lsb_release=$(lsb_release -rs)
+if [ "$lsb_release" == "" ]; then lsb_release="testing"; fi
+build_deps="dch dh_make"
+read -p 'Enter package version [1.0]: ' deb_package_version
+if [ "$deb_package_version" == "" ]; then deb_package_version="1.0"; fi
+read -p 'Enter release ['$lsb_release']: ' release
+if [ "$release" == "" ]; then release="$lsb_release"; fi
+cat <<EOF
+License:
+1. GNU GPL
+2. GNU GPL version 2
+3. GNU GPL version 3
+4. GNU Lesser GPL
+5. GNU Lesser GPL version 2
+6. GNU Lesser GPL version 3
+7. Apache
+8. BSD
+9. MIT
+EOF
+read -p 'Choose [3]: ' LCSE
+echo ''
+read -p 'Enter your name: ' packagers_name
+read -p 'Enter your email: ' packagers_mail
+
+case "$LCSE" in
+	"1" ) deb_package_license="gpl"
+	shift 2 ;;
+	"2" ) deb_package_license="gpl2"
+	shift 2 ;;
+	"3" ) deb_package_license="gpl3"
+	shift 2 ;;
+	"4" ) deb_package_license="lgpl"
+	shift 2 ;;
+	"5" ) deb_package_license="lgpl2"
+	shift 2 ;;
+	"6" ) deb_package_license="lgpl3"
+	shift 2 ;;
+	"7" ) deb_package_license="artistic"
+	shift 2 ;;
+	"8" ) deb_package_license="bsd"
+	shift 2 ;;
+	"9" ) deb_package_license="mit"
+	shift 2 ;;
+	* ) deb_package_license="gpl3"
+	shift 2 ;;
+esac
+
+if [ -d $project_dir/debian ]; then echo "Error: debian/ directory is already exist!"; exit 1; fi
+
+# Check build depends
+_checkBuildDeps(){
+	echo -n "Checking $1... "
+	check=0
+	if [ "$(which $1)" == "" ]
+	then
+		check=$(expr $check + 1)
+		echo "not found!"
+	else
+		echo $(which $1)
+	fi
+}
+
+for dependency in $build_deps
+do
+	_checkBuildDeps $dependency
+	if [[ $check -gt 0 ]]
+	then
+		echo -e "\nCould not continue. Build dependencies were not fully satisfied."
+		exit 1
+	fi
+done
+
+echo ""
+
+pushd $project_dir > /dev/null 2>&1
+
+echo "-> dh_make"
+DEBFULLNAME="$packagers_name" DEBEMAIL="$packagers_mail" dh_make --single --native --copyright $deb_package_license --packagename "$deb_package_name"_"$deb_package_version" --yes > /dev/null 2>&1
+rm debian/*.ex debian/*.EX debian/README.Debian debian/README.source
+
+echo "-> debian/changelog"
+rm debian/changelog
+cat > debian/changelog <<EOF
+$deb_package_name ($deb_package_version) $release; urgency=low
+
+  * Initial release.
+
+ -- $packagers_name <$packagers_mail>  $(date +"%a, %d %b %Y %T %z")
+EOF
+
+echo "-> debian/control"
+sed -i -e "s/Homepage:/#Homepage:/" \
+	-e "s/Architecture: any/Architecture: all/" \
+	-e "s/Depends:/Depends: ignsdk-debian | ignsdk,/" \
+	-e "s/Description:\(.*\)/Description: Another IGN SDK Application/" \
+	-e "s/<insert long description\(.*\)/This is an IGN SDK Application/" \
+	debian/control
+
+echo "-> debian/copyright"
+sed -i -e "s/Source: \(.*\)/Source: http:\/\/ignsdk.web.id/" \
+	-e "s/Copyright: <years>\(.*\)/Copyright: $(date +%Y) $packagers_name <$packagers_mail>/" \
+	-e "s/#\(.*\)//" \
+	debian/copyright
+
+echo "-> debian/README"
+rm debian/README
+cat > debian/README <<EOF
+IGN SDK Application $deb_package_name.ign
+-------------------------------------
+
+This application is built using IGOS Nusantara Software Development Kit
+
+ -- $packagers_name <$packagers_mail> $(date +"%a, %d %b %Y %T %z")
+EOF
+
+popd > /dev/null 2>&1
